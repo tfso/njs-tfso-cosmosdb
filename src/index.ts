@@ -18,14 +18,14 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
      * @param id 
      * @param options 
      */
-    public readDocument(id: string, options: RequestOptions): Promise<{resource: TEntity, etag: string, headers: any}>
+    public readDocument(id: string, options?: RequestOptions): Promise<{resource: TEntity, etag: string, headers: any}>
     /**
      * Reads a document by its document id
      * @param document
      * @param options 
      */
-    public readDocument(document: TEntity, options: RequestOptions): Promise<{resource: TEntity, etag: string, headers: any}>
-    public readDocument(idordoc: any, options: RequestOptions): Promise<{resource: TEntity, etag: string, headers: any}> {        
+    public readDocument(document: TEntity, options?: RequestOptions): Promise<{resource: TEntity, etag: string, headers: any}>
+    public readDocument(idordoc: any, options: RequestOptions = undefined): Promise<{resource: TEntity, etag: string, headers: any}> {        
         return new Promise((resolve, reject) => {
             try {
                 this.client.readDocument(`${this.createDocumentLink(idordoc)}`, options, (error, resource, headers) => {
@@ -105,7 +105,7 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
      * @param document 
      * @param options 
      */
-    public updateDocument(document: Partial<TEntity>, options: RequestOptions): Promise<{resource: TEntity, headers: any}> {
+    public updateDocument(document: Partial<TEntity>, options: RequestOptions = undefined): Promise<{resource: TEntity, headers: any}> {
         return new Promise(async (resolve, reject) => {
             try {
                 if(document.id == null)
@@ -120,7 +120,7 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
                     let newDocument = Object.assign(<NewDocument>{}, resource, document);
 
                     try {
-                        let { resource: newResource, headers } = await this.replaceDocument(newDocument, Object.assign(options, {
+                        let { resource: newResource, headers } = await this.replaceDocument(newDocument, Object.assign(options || {}, {
                             accessCondition : { type: 'IfMatch', condition: etag }
                         }))
 
@@ -146,7 +146,7 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
      * @param document 
      * @param options 
      */
-    public replaceDocument(document: TEntity, options: RequestOptions): Promise<{resource: TEntity, headers: any}> {
+    public replaceDocument(document: TEntity, options: RequestOptions = undefined): Promise<{resource: TEntity, headers: any}> {
         return new Promise((resolve, reject) => {
             try {
                 this.client.replaceDocument(this.createDocumentLink(document), document, options, (error, resource, headers) => {
@@ -170,7 +170,7 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
      * @param document 
      * @param options 
      */
-    public upsertDocument(document: TEntity, options: DocumentOptions): Promise<{ resource: TEntity, headers: any}> {
+    public upsertDocument(document: TEntity, options: DocumentOptions = undefined): Promise<{ resource: TEntity, headers: any}> {
         return new Promise((resolve, reject) => {
             try {
                 this.client.upsertDocument(this.createCollectionLink(), document, options, (error, resource, headers) => {
@@ -190,13 +190,19 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
     }
 
     /**
-     * Deletes a document
+     * Deletes a document by its document id
      * @param document 
      */
-    public deleteDocument(document: TEntity): Promise<{resource: void, headers: any}> {
+    public deleteDocument(document: TEntity, options?: RequestOptions): Promise<{resource: void, headers: any}>
+    /**
+     * Deletes a document by its id
+     * @param id 
+     */
+    public deleteDocument(id: string, options?: RequestOptions): Promise<{resource: void, headers: any}>
+    public deleteDocument(idordoc: any, options: RequestOptions = undefined): Promise<{resource: void, headers: any}> {
         return new Promise((resolve, reject) => {
             try {
-                this.client.deleteDocument(this.createDocumentLink(document), (error, resource, headers) => {
+                this.client.deleteDocument(this.createDocumentLink(idordoc), options, (error, resource, headers) => {
                     if(error) 
                         return reject(this.transformError(error))
 
