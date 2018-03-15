@@ -10,7 +10,7 @@ let { resource: mydoc } = await client.readDocument('<id>', { partitionKey: '<cl
 
 ```
 
-In javascript you may have to do a require, maybe like; `const { _default: DocumentClient } = require('tfso-cosmosdb'`
+In javascript you may have to do a require, maybe like; `const { _default: DocumentClient } = require('tfso-cosmosdb')`
 
 ## methods
 
