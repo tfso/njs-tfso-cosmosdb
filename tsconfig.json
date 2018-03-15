@@ -1,0 +1,17 @@
+{
+    "compileOnSave": true,
+    "compilerOptions": {
+        "target": "es2017",
+        "module": "commonjs",
+        "noEmitOnError": true,
+        "declaration": true,
+        "sourceMap": true,
+        "noEmitHelpers": true,
+        "importHelpers": true,
+        "outDir": "./lib"
+    },
+    "exclude": [
+        "lib",
+        "node_modules"
+    ]
+}

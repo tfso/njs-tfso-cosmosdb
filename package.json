@@ -1,0 +1,25 @@
+{
+  "name": "tfso-cosmosdb",
+  "version": "0.0.0",
+  "description": "Promise wrapper for CosmosDB with simplified usage ",
+  "scripts": {
+    "test": "node node_modules/mocha/bin/_mocha --reporter spec --recursive lib/test/*.js"
+  },
+  "author": {
+    "name": "Nicolai"
+  },
+  "main": "./lib/index",
+  "typings": "./lib/index",
+  "dependencies": {
+    "documentdb": "^1.14.2"
+  },
+  "devDependencies": {
+    "@types/documentdb": "^1.10.4",
+    "@types/mocha": "^2.2.39",
+    "@types/node": "^8.5.3",
+    "tslib": "^1.9.0",
+    "mocha": "^2.5.3",
+    "ts-node": "^4.1.0",
+    "typescript": "^2.7.2"
+  }
+}

@@ -1,0 +1,57 @@
+{
+	"folders": [
+		{
+			"name": "tfso-cosmosdb",
+			"path": "."
+		}
+	],
+	"settings": {
+		"launch": {
+			"version": "0.2.0",
+			"configurations": [
+				{
+					"name": "Launch mocha tests",
+					"type": "node",
+					"request": "launch",
+					"program": "${workspaceRoot:tfso-cosmosdb}/node_modules/mocha/bin/_mocha",
+					"stopOnEntry": false,
+					"args": ["--no-timeouts", "--compilers", "ts:ts-node/register", "${workspaceRoot:tfso-cosmosdb}/src/test/*.ts"],
+					"cwd": "${workspaceRoot:tfso-cosmosdb}",
+					"protocol": "inspector"
+				}
+			]
+		},
+		"files.exclude": {
+			"**/.git": true,
+			"**/.vscode": true,
+			"lib": true,
+			"node_modules": true
+		},
+		"mocha.env": {
+			"TS_NODE_COMPILER": "./node_modules/typescript/bin/tsc"
+		},
+		"typescript.tsdk": "./node_modules/typescript/lib",
+		"mocha.options": {
+			"compilers": {
+				"ts": "ts-node/register"
+			}
+		},
+		"mocha.files.glob": "src/test/*.ts",
+		"mocha.requires": [
+			"ts-node/register"
+		],
+		//Mocha: this option allows you to enable/disable lens decorations and set update threshold "
+		"mocha.sideBarOptions": {
+			"default": {
+				"lens": true, // -> enable/disable lens
+				"decoration": true, // -> enable/disable decoration
+				"autoUpdateTime": 2000 // -> set timeout between each decorations and lens updates during test writing 
+			}
+		}
+	},
+	"extensions": {
+		"recommendations": [
+			"maty.vscode-mocha-sidebar"
+		]
+	}
+}
