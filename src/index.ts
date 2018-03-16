@@ -2,15 +2,22 @@ import { UriFactory, DocumentClient, ConnectionPolicy, NewDocument, RequestOptio
 import { DocumentBase } from 'documentdb/lib'
 
 export default class DocumentDBClient<TEntity extends NewDocument> {
-    private client: DocumentClient;
+    private _client: DocumentClient;
+    private _policy: ConnectionPolicy;
 
     constructor(private host: string, private key: string, private databaseId: string, private collectionId: string) {
-        let opts: ConnectionPolicy = new DocumentBase.ConnectionPolicy()
-        opts.DisableSSLVerification = process.env.NODE_ENV == 'development' ? true : false
-        
-        this.client = new DocumentClient(host, {
-            masterKey: key
-        }, opts)
+
+    }
+
+    public get policy(): ConnectionPolicy {
+        if(this._policy == null) {
+            this._policy = new DocumentBase.ConnectionPolicy()
+
+            if(process.env.NODE_ENV == 'development')
+                this._policy.DisableSSLVerification = true
+        }
+
+        return this._policy
     }
 
     /**
@@ -216,6 +223,15 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
                 reject(ex)
             }
         })
+    }
+
+    private get client() {
+        if(this._client == null)
+            this._client = new DocumentClient(this.host, {
+                masterKey: this.key
+            }, this.policy)
+        
+        return this._client
     }
 
     private createDatabaseLink() {
