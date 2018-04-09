@@ -1,4 +1,4 @@
-import { UriFactory, DocumentClient, ConnectionPolicy, NewDocument, RequestOptions, DocumentOptions, RetrievedDocument, FeedOptions, SqlQuerySpec } from 'documentdb'
+import { UriFactory, DocumentClient, ConnectionPolicy, NewDocument, RequestOptions, DocumentOptions, RetrievedDocument, FeedOptions, SqlQuerySpec, QueryIterator } from 'documentdb'
 import { DocumentBase } from 'documentdb/lib'
 
 export default class DocumentDBClient<TEntity extends NewDocument> {
@@ -46,7 +46,12 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
                         }
                     }
 
-                    resolve({resource: <TEntity>this.makeEntity(resource), etag: resource._etag, headers})
+                    try {
+                        resolve({resource: this.makeEntity(resource), etag: resource._etag, headers})
+                    }
+                    catch(ex) {
+                        reject(ex)
+                    }
                 })
             }
             catch(ex) {
@@ -56,30 +61,47 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
     }
 
     /**
-     * Query for the documents
+     * Query for the documents with paging using ContinuationToke
      * @param query 
      * @param options 
      */
     public queryDocuments(query: string | SqlQuerySpec, options: FeedOptions): Promise<{resources: TEntity[], continuationToken: string, headers: any}> {
-        return new Promise((resolve, reject) => {
+        return new Promise(async (resolve, reject) => {
             try {
                 let iterator = this.client.queryDocuments(this.createCollectionLink(), query, options)
+                let { resources, headers } = await this.executeNext(iterator)
                 
-                iterator.executeNext((error, resources, headers) => {
-                    if(error)
-                        return reject(this.transformError(error))
-
-                    resolve({
-                        resources: resources.map(r => this.makeEntity(r)),
-                        continuationToken: iterator.hasMoreResults ? headers['x-ms-continuation'] : null,
-                        headers
-                    })
+                resolve({
+                    resources,
+                    continuationToken: iterator.hasMoreResults ? headers['x-ms-continuation'] : null,
+                    headers
                 })
             }
             catch(ex) {
                 reject(ex)
             }
         })
+    }
+
+    /**
+     * Query for the documents from the beginning or the point of continuationToken until the end
+     * @param query 
+     * @param options 
+     */
+    public async queryAllDocuments(query: string | SqlQuerySpec, options: FeedOptions): Promise<{resources: TEntity[], headers: any}> {
+        let iterator = this.client.queryDocuments(this.createCollectionLink(), query, options),
+            resources = new Array<TEntity>();
+        
+        while(iterator.hasMoreResults) { // hasMoreResults is deprecated
+            let { resources: items } = await this.executeNext(iterator)
+
+            resources.push(...items)
+        }
+
+        return {
+            resources: resources, 
+            headers: null
+        }
     }
 
     /**
@@ -98,7 +120,12 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
                     if(error) 
                         return reject(this.transformError(error))
 
-                    resolve({ resource: this.makeEntity(resource), headers })
+                    try {
+                        resolve({ resource: this.makeEntity(resource), headers })
+                    } 
+                    catch(ex) {
+                        reject(ex)
+                    }
                 })
             }
             catch(ex) {
@@ -160,10 +187,15 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
                     if(error)
                         return reject(this.transformError(error))
 
-                    resolve({
-                        resource: this.makeEntity(resource),
-                        headers
-                    })
+                    try {
+                        resolve({
+                            resource: this.makeEntity(resource),
+                            headers
+                        })
+                    }
+                    catch(ex) {
+                        reject(ex)
+                    }
                 })
             }
             catch(ex) {
@@ -184,10 +216,15 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
                     if(error)
                         return reject(this.transformError(error))
 
-                    resolve({
-                        resource: this.makeEntity(resource),
-                        headers
-                    })
+                    try {
+                        resolve({
+                            resource: this.makeEntity(resource),
+                            headers
+                        })
+                    } 
+                    catch(ex) {
+                        reject(ex)   
+                    }
                 })
             }
             catch(err) {
@@ -248,6 +285,27 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
         return UriFactory.createDocumentUri(this.databaseId, this.collectionId, typeof document == 'object' ? document.id : document)
     }
 
+    private executeNext(iterator: QueryIterator<RetrievedDocument>): Promise<{resources: TEntity[], headers: any}> {
+        return new Promise((resolve, reject) => {
+            try {
+                if(iterator.hasMoreResults) {
+                    iterator.executeNext((error, resources, headers) => {
+                        if(error)
+                            return reject(this.transformError(error))
+
+                        resolve({
+                            resources: resources.map(r => this.makeEntity(r)),
+                            headers
+                        })
+                    })
+                }
+            } 
+            catch(ex) {
+                reject(ex)
+            }
+        })
+    }    
+
     private makeEntity<T extends NewDocument>(doc: T): TEntity {
         return <TEntity>this.makeDocument(doc)
     }
@@ -257,6 +315,9 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
     private makeDocument(resource: RetrievedDocument): NewDocument
     private makeDocument<T extends NewDocument>(resource: T): NewDocument {
         let document: NewDocument = { id: resource.id }
+
+        if(typeof resource != 'object' || resource == null)
+            return null
 
         for(let propertyName of Object.getOwnPropertyNames(resource)) {
             switch(propertyName) {
