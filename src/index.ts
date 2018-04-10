@@ -2,6 +2,8 @@
 
 import { UriFactory, DocumentClient, ConnectionPolicy, NewDocument, RequestOptions, DocumentOptions, RetrievedDocument, FeedOptions, SqlQuerySpec, QueryIterator } from 'documentdb'
 import { DocumentBase } from 'documentdb/lib'
+import * as Constants from 'documentdb/lib/constants'
+
 
 export default class DocumentDBClient<TEntity extends NewDocument> {
     private _client: DocumentClient;
@@ -10,7 +12,7 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
     private _washDocuments: boolean = true
 
     constructor(private host: string, private key: string, private databaseId: string, private collectionId: string) {
-
+     
     }
 
     public get policy(): ConnectionPolicy {
@@ -69,6 +71,8 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
     public readDocument(idordoc: any, options: RequestOptions = undefined): Promise<{resource: TEntity, etag: string, headers: any}> {        
         return new Promise((resolve, reject) => {
             try {
+                this.validateOptions(options)
+                
                 this.client.readDocument(`${this.createDocumentLink(idordoc)}`, options, (error, resource, headers) => {
                     if(error) {
                         switch(error.code) {
@@ -102,6 +106,8 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
     public queryDocuments(query: string | SqlQuerySpec, options?: FeedOptions): Promise<{resources: TEntity[], continuationToken: string, headers: any}> {
         return new Promise(async (resolve, reject) => {
             try {
+                this.validateOptions(options)
+
                 let iterator = this.client.queryDocuments(this.createCollectionLink(), query, options)
                 
                 let { resources, headers } = await this.executeNext(iterator)
@@ -124,6 +130,8 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
      * @param options 
      */
     public async * iterateDocuments(query: string | SqlQuerySpec, options?: FeedOptions): AsyncIterableIterator<TEntity> {
+        this.validateOptions(options)
+
         let iterator = this.client.queryDocuments(this.createCollectionLink(), query, options)
 
         do
@@ -146,9 +154,10 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
     public createDocument(document: TEntity, options: DocumentOptions = undefined): Promise<{resource: TEntity, headers: any }> {
         return new Promise((resolve, reject) => {
             try {
-                let opts: DocumentOptions = Object.assign({
-                    
+                let opts: DocumentOptions = Object.assign({  
                 }, options)
+
+                this.validateOptions(options)
 
                 this.client.createDocument(this.createCollectionLink(), document, options, (error, resource, headers) => {
                     if(error) 
@@ -178,6 +187,8 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
             try {
                 if(document.id == null)
                     throw new Error(`Document is missing property id`)
+
+                this.validateOptions(options)
 
                 for(let retry = 0; retry < 4; retry++) {
                     let { resource, etag } = await this.readDocument(document.id, options)
@@ -217,6 +228,8 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
     public replaceDocument(document: TEntity, options: RequestOptions = undefined): Promise<{resource: TEntity, headers: any}> {
         return new Promise((resolve, reject) => {
             try {
+                this.validateOptions(options)
+
                 this.client.replaceDocument(this.createDocumentLink(document), document, options, (error, resource, headers) => {
                     if(error)
                         return reject(this.transformError(error))
@@ -246,6 +259,8 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
     public upsertDocument(document: TEntity, options: DocumentOptions = undefined): Promise<{ resource: TEntity, headers: any}> {
         return new Promise((resolve, reject) => {
             try {
+                this.validateOptions(options)
+
                 this.client.upsertDocument(this.createCollectionLink(), document, options, (error, resource, headers) => {
                     if(error)
                         return reject(this.transformError(error))
@@ -395,5 +410,101 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
         }
 
         return err
+    }
+
+    private validateOptions(options: FeedOptions | RequestOptions | DocumentOptions): void {
+        for(let [key, value] of Object.entries(this.getHeaders(options))) 
+        {
+            if(value === undefined)
+                throw new TypeError(`Invalid value "${value}" for header "${key}"`)
+        }
+    }
+
+    private getHeaders(options: FeedOptions): { [index: string]: string } 
+    private getHeaders(options: RequestOptions): { [index: string]: string }
+    private getHeaders(options: DocumentOptions): { [index: string]: string }
+    private getHeaders(options: any): { [index: string]: string } {
+        var headers = {}
+            options = options || {};
+            
+        if (options.continuation) {
+            headers[Constants.HttpHeaders.Continuation] = options.continuation;
+        }
+        
+        if (options.preTriggerInclude) {
+            headers[Constants.HttpHeaders.PreTriggerInclude] = options.preTriggerInclude.constructor === Array ? options.preTriggerInclude.join(",") : options.preTriggerInclude;
+        }
+        
+        if (options.postTriggerInclude) {
+            headers[Constants.HttpHeaders.PostTriggerInclude] = options.postTriggerInclude.constructor === Array ? options.postTriggerInclude.join(",") : options.postTriggerInclude;
+        }
+        
+        if (options.offerType) {
+            headers[Constants.HttpHeaders.OfferType] = options.offerType;
+        }
+        
+        if (options.offerThroughput) {
+            headers[Constants.HttpHeaders.OfferThroughput] = options.offerThroughput;
+        }
+        
+        if (options.maxItemCount) {
+            headers[Constants.HttpHeaders.PageSize] = options.maxItemCount;
+        }
+        
+        if (options.accessCondition) {
+            if (options.accessCondition.type === "IfMatch") {
+                headers[Constants.HttpHeaders.IfMatch] = options.accessCondition.condition;
+            } else {
+                headers[Constants.HttpHeaders.IfNoneMatch] = options.accessCondition.condition;
+            }
+        }
+        
+        if (options.indexingDirective) {
+            headers[Constants.HttpHeaders.IndexingDirective] = options.indexingDirective;
+        }
+        
+        // TODO: add consistency level validation.
+        if (options.consistencyLevel) {
+            headers[Constants.HttpHeaders.ConsistencyLevel] = options.consistencyLevel;
+        }
+        
+        if (options.resourceTokenExpirySeconds) {
+            headers[Constants.HttpHeaders.ResourceTokenExpiry] = options.resourceTokenExpirySeconds;
+        }
+        
+        // TODO: add session token automatic handling in case of session consistency.
+        if (options.sessionToken) {
+            headers[Constants.HttpHeaders.SessionToken] = options.sessionToken;
+        }
+        
+        if (options.enableScanInQuery) {
+            headers[Constants.HttpHeaders.EnableScanInQuery] = options.enableScanInQuery;
+        }
+        
+        if (options.enableCrossPartitionQuery) {
+            headers[Constants.HttpHeaders.EnableCrossPartitionQuery] = options.enableCrossPartitionQuery;
+        }
+
+        if (options.maxDegreeOfParallelism != undefined) {
+            headers[Constants.HttpHeaders.ParallelizeCrossPartitionQuery] = true;
+        }
+
+        if (options.populateQuotaInfo) {
+            headers[Constants.HttpHeaders.PopulateQuotaInfo] = true;
+        }
+
+        if (options.enableScriptLogging) {
+            headers[Constants.HttpHeaders.EnableScriptLogging] = options.enableScriptLogging;
+        }
+
+        if (options.offerEnableRUPerMinuteThroughput) {
+            headers[Constants.HttpHeaders.OfferIsRUPerMinuteThroughputEnabled] = true; 
+        }
+
+        if (options.disableRUPerMinuteUsage) {
+            headers[Constants.HttpHeaders.DisableRUPerMinuteUsage] = true; 
+        }
+
+        return headers;
     }
 }
