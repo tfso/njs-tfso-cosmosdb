@@ -1,9 +1,13 @@
+(Symbol as any).asyncIterator = (<any>Symbol).asyncIterator || "__@@asyncIterator__";
+
 import { UriFactory, DocumentClient, ConnectionPolicy, NewDocument, RequestOptions, DocumentOptions, RetrievedDocument, FeedOptions, SqlQuerySpec, QueryIterator } from 'documentdb'
 import { DocumentBase } from 'documentdb/lib'
 
 export default class DocumentDBClient<TEntity extends NewDocument> {
     private _client: DocumentClient;
     private _policy: ConnectionPolicy;
+
+    private _washDocuments: boolean = true
 
     constructor(private host: string, private key: string, private databaseId: string, private collectionId: string) {
 
@@ -18,6 +22,36 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
         }
 
         return this._policy
+    }
+
+    public get washDocuments(): boolean {
+        return this.washDocuments
+    }
+
+    public set washDocuments(value: boolean) {
+        this._washDocuments = !!value
+    }
+
+    /**
+     * Fetches entities from an asynchronious iterator
+     * @param iterator an async iterable iterator
+     * @param quantity number of items to fetch, any number below zero will fetch all
+     */
+    public static async fromAsyncIterable<TEntity>(iterator: AsyncIterableIterator<TEntity>, quantity: number = 100): Promise<TEntity[]> {
+        let entities = new Array<TEntity>(),
+            idx = 0
+
+        do {
+            let result = await iterator.next()
+
+            if(result.done || (quantity >= 0 && quantity <= idx++))
+                break;
+
+            entities.push(result.value)
+        }
+        while(true)
+
+        return entities;
     }
 
     /**
@@ -61,19 +95,20 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
     }
 
     /**
-     * Query for the documents with paging using ContinuationToke
+     * Query for the documents with paging using ContinuationToken
      * @param query 
      * @param options 
      */
-    public queryDocuments(query: string | SqlQuerySpec, options: FeedOptions): Promise<{resources: TEntity[], continuationToken: string, headers: any}> {
+    public queryDocuments(query: string | SqlQuerySpec, options?: FeedOptions): Promise<{resources: TEntity[], continuationToken: string, headers: any}> {
         return new Promise(async (resolve, reject) => {
             try {
                 let iterator = this.client.queryDocuments(this.createCollectionLink(), query, options)
+                
                 let { resources, headers } = await this.executeNext(iterator)
                 
                 resolve({
                     resources,
-                    continuationToken: iterator.hasMoreResults ? headers['x-ms-continuation'] : null,
+                    continuationToken: resources !== undefined ? headers['x-ms-continuation'] : null,
                     headers
                 })
             }
@@ -84,24 +119,23 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
     }
 
     /**
-     * Query for the documents from the beginning or the point of continuationToken until the end
+     * Iterate through documents asynchronious with `for await()`
      * @param query 
      * @param options 
      */
-    public async queryAllDocuments(query: string | SqlQuerySpec, options: FeedOptions): Promise<{resources: TEntity[], headers: any}> {
-        let iterator = this.client.queryDocuments(this.createCollectionLink(), query, options),
-            resources = new Array<TEntity>();
-        
-        while(iterator.hasMoreResults) { // hasMoreResults is deprecated
-            let { resources: items } = await this.executeNext(iterator)
+    public async * iterateDocuments(query: string | SqlQuerySpec, options?: FeedOptions): AsyncIterableIterator<TEntity> {
+        let iterator = this.client.queryDocuments(this.createCollectionLink(), query, options)
 
-            resources.push(...items)
-        }
+        do
+        {
+            let { resources, headers } = await this.executeNext(iterator)
 
-        return {
-            resources: resources, 
-            headers: null
-        }
+            if(resources === undefined)
+                break;
+
+            yield *resources
+
+        } while(true)
     }
 
     /**
@@ -288,17 +322,19 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
     private executeNext(iterator: QueryIterator<RetrievedDocument>): Promise<{resources: TEntity[], headers: any}> {
         return new Promise((resolve, reject) => {
             try {
-                if(iterator.hasMoreResults) {
-                    iterator.executeNext((error, resources, headers) => {
-                        if(error)
-                            return reject(this.transformError(error))
+                iterator.executeNext((error, resources, headers) => {
+                    if(error)
+                        return reject(this.transformError(error))
 
-                        resolve({
-                            resources: resources.map(r => this.makeEntity(r)),
-                            headers
-                        })
+                    if(error === undefined && resources === undefined)
+                        return resolve({ resources: undefined, headers: undefined })
+
+                    resolve({
+                        resources: resources.map(r => this.makeEntity(r)),
+                        headers
                     })
-                }
+                })
+                
             } 
             catch(ex) {
                 reject(ex)
@@ -314,10 +350,13 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
     private makeDocument(resource: NewDocument): NewDocument
     private makeDocument(resource: RetrievedDocument): NewDocument
     private makeDocument<T extends NewDocument>(resource: T): NewDocument {
-        let document: NewDocument = { id: resource.id }
-
         if(typeof resource != 'object' || resource == null)
             return null
+
+        if(this._washDocuments == false)
+            return resource;
+        
+        let document: NewDocument = { id: resource.id }
 
         for(let propertyName of Object.getOwnPropertyNames(resource)) {
             switch(propertyName) {
