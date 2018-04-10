@@ -15,11 +15,14 @@ In javascript you may have to do a require, maybe like; `const { _default: Docum
 ## methods
 
 ```typescript
+washDocuments: boolean // defaults to true
+
 readDocument(id: string, options: RequestOptions): Promise<{ resource: TEntity; etag: string; headers: any; }>
 readDocument(document: TEntity, options: RequestOptions): Promise<{ resource: TEntity; etag: string; headers: any; }>
 
 queryDocuments(query: string | SqlQuerySpec, options: FeedOptions): Promise<{ resources: TEntity[]; 
 continuationToken: string; headers: any; }>
+iterateDocuments(query: string | SqlQuerySpec, options?: FeedOptions): AsyncIterableIterator<TEntity>
 
 createDocument(document: TEntity, options?: DocumentOptions): Promise<{ resource: TEntity; headers: any; }>
 
