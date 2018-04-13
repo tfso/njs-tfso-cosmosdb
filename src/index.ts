@@ -9,6 +9,9 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
     private _client: DocumentClient;
     private _policy: ConnectionPolicy;
 
+    private offerSelfLink: string
+    private offerReserved: boolean = false
+
     private _washDocuments: boolean = true
 
     constructor(private host: string, private key: string, private databaseId: string, private collectionId: string) {
@@ -72,7 +75,7 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
         return new Promise((resolve, reject) => {
             try {
                 this.validateOptions(options)
-                
+
                 this.client.readDocument(`${this.createDocumentLink(idordoc)}`, options, (error, resource, headers) => {
                     if(error) {
                         switch(error.code) {
@@ -311,7 +314,217 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
         })
     }
 
-    private get client() {
+    /**
+     * Get the current throughput (RU/s)
+     */
+    public async getThroughput(): Promise<number> {
+        return new Promise<number>(async (resolve, reject) => {
+            try {
+                let offer = await this.getOffer()
+
+                if(!offer.content)
+                    throw new Error(`Offer for collection "${this.createCollectionLink()}" is missing content`);
+                
+                resolve(offer.content.offerThroughput)
+            }
+            catch(ex) {
+                reject(ex)
+            }
+        })
+    }
+
+    /**
+     * Set the throughput (RU/s) to any number between 400 and 10000
+     * @param value RU/s
+     */
+    public async setThroughput(value: number): Promise<boolean> {
+        return new Promise<boolean>(async (resolve, reject) => {
+            try {
+                if(value < 400) value = 400
+                if(value > 10000) value = 10000
+
+                if(await this.reserveOffer() == true) {
+                    let offer = await this.getOffer()
+
+                    if(!offer.content)
+                        throw new Error(`Offer for collection "${this.createCollectionLink()}" is missing content`);
+                    
+                    offer.content.offerThroughput = value;               
+
+                    this.client.replaceOffer(offer._self, offer, (error, resource) => {
+                        if(error)
+                            return reject(this.transformError(error))
+
+                        resolve(true)
+
+                        this.offerReserved = false
+                    })
+                }
+                else {
+                    resolve(false)
+
+                    this.offerReserved = false
+                }
+            }
+            catch(ex) {
+                reject(ex)
+
+                this.offerReserved = false
+            }
+        })
+    }
+
+    /**
+     * Increase the throughput (RU/s), defaults to 200. Will never exceed 10000
+     * @param value RU/s
+     */    
+    public async increaseThroughput(value: number = 200): Promise<number> {
+        return new Promise<number>(async (resolve, reject) => {
+            try {
+                if(value < 0) value = 200
+
+                if(await this.reserveOffer() == true) {
+                    let offer = await this.getOffer()
+
+                    if(!offer.content)
+                        throw new Error(`Offer for collection "${this.createCollectionLink()}" is missing content`);
+
+                    offer.content.offerThroughput = Math.min( (offer.content.offerThroughput + value), 10000)
+
+                    this.client.replaceOffer(offer._self, offer, (error, resource) => {
+                        if(error)
+                            return reject(this.transformError(error))
+
+                        resolve(offer.content.offerThroughput)
+
+                        this.offerReserved = false
+                    })
+                }
+                else {
+                    resolve(undefined)
+
+                    this.offerReserved = false
+                }
+            }
+            catch(ex) {
+                reject(ex)
+
+                this.offerReserved = false
+            }
+        })
+    }
+
+    /**
+     * Decrease the throughput (RU/s), defaults to 200. Will never go below 400
+     * @param value RU/s
+     */
+    public async decreaseThroughput(value: number = 200): Promise<number> {
+        return new Promise<number>(async (resolve, reject) => {
+            try {
+                if(value < 0) value = 200
+                
+                if(await this.reserveOffer() == true) {
+                    let offer = await this.getOffer()
+
+                    if(!offer.content)
+                        throw new Error(`Offer for collection "${this.createCollectionLink()}" is missing content`);
+
+                    offer.content.offerThroughput = Math.max(offer.content.offerThroughput - value, 400);
+
+                    this.client.replaceOffer(offer._self, offer, (error, resource) => {
+                        if(error)
+                            return reject(this.transformError(error))
+
+                        resolve(offer.content.offerThroughput)
+
+                        this.offerReserved = false
+                    })
+                }
+                else {
+                    resolve(undefined)
+
+                    this.offerReserved = false
+                }
+            }
+            catch(ex) {
+                reject(ex)
+
+                this.offerReserved = false
+            }
+        })
+    }
+
+    private reserveOffer(timeout: number = 15000): Promise<boolean> {
+        return new Promise<boolean>((resolve, reject) => {
+            let time = timeout,
+                interval = 50,
+
+                thread = setInterval(() => {
+                    if(this.offerReserved == false) {
+                        clearTimeout(thread)
+                        resolve(true)
+                    }
+                    else if ((time -= interval) < 0) {
+                        clearTimeout(thread);
+                        resolve(false);
+                    }
+
+                }, interval);
+        })
+    }
+
+    private getOffer(): Promise<any> {  
+        let getCollectionSelfLink = async () => {
+            return new Promise((resolve, reject) => {
+                try {
+                    this.client.readCollection(this.createCollectionLink(), async (err, resource) => {
+                        resolve(resource._self)
+                    });
+                }
+                catch(ex) {
+                    reject(ex)
+                }
+            })
+        }     
+
+        return new Promise(async (resolve, reject) => {
+            try {
+                if(!this.offerSelfLink) {
+                    let iterator = this.client.queryOffers({ 
+                        query: 'SELECT * FROM r WHERE r.resource = @selfLink',
+                        parameters: [
+                            { name: '@selfLink', value: await getCollectionSelfLink() }
+                        ]
+                    });
+
+                    iterator.executeNext((error, resources, headers) => {
+                        if(error)
+                            return reject(this.transformError(error))
+
+                        if(resources.length != 1)
+                            return reject(new Error(`Offer for collection "${this.createCollectionLink()}" is not found`))
+
+                        this.offerSelfLink = resources[0]._self
+                        
+                        resolve(resources[0])
+                    })
+                }
+                else {
+                    this.client.readOffer(this.offerSelfLink, (error, resource) => {
+                        if(error)
+                            return reject(this.transformError(error))
+
+                        resolve(resource)
+                    })
+                }
+            } catch(ex) {
+                reject(ex)
+            }
+        })
+        
+    }    
+
+    protected get client() {
         if(this._client == null)
             this._client = new DocumentClient(this.host, {
                 masterKey: this.key
@@ -320,17 +533,17 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
         return this._client
     }
 
-    private createDatabaseLink() {
+    protected createDatabaseLink() {
         return UriFactory.createDatabaseUri(this.databaseId)
     }
 
-    private createCollectionLink() {
+    protected createCollectionLink() {
         return UriFactory.createDocumentCollectionUri(this.databaseId, this.collectionId)
     }
 
-    private createDocumentLink(id: string): string
-    private createDocumentLink(document: TEntity): string
-    private createDocumentLink(document: any): string {
+    protected createDocumentLink(id: string): string
+    protected createDocumentLink(document: TEntity): string
+    protected createDocumentLink(document: any): string {
         return UriFactory.createDocumentUri(this.databaseId, this.collectionId, typeof document == 'object' ? document.id : document)
     }
 
