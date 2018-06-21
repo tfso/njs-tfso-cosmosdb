@@ -206,7 +206,7 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
                             accessCondition : { type: 'IfMatch', condition: etag }
                         }))
 
-                        return { resource: newResource, headers }
+                        resolve({ resource: newResource, headers })
                     }
                     catch(ex) {
                         if(ex.statusCode != 412 || retry == 4) 
