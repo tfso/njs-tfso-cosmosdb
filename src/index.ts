@@ -199,7 +199,7 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
                     if(resource == null)
                         throw new Error(`Document "${this.createDocumentLink(<TEntity>document)}" does not exist.`)
 
-                    let newDocument = Object.assign(<NewDocument>{}, resource, document);
+                    let newDocument = this.apply(resource, document);
 
                     try {
                         let { resource: newResource, headers } = await this.replaceDocument(newDocument, Object.assign(options || {}, {
@@ -720,4 +720,56 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
 
         return headers;
     }
+
+    private apply<TEntity>(target: TEntity, source: Partial<TEntity>): TEntity {
+        let targetProto: Object = this.isClass(target) == true ? Object.getPrototypeOf(target) : target,
+            sourceProto: Object = this.isClass(source) == true ? Object.getPrototypeOf(source) : source,
+            destination = Object.assign({}, target)
+
+        for (let property of Object.getOwnPropertyNames(sourceProto)) {
+            if (source[property] === undefined)
+                continue
+            
+            if (targetProto.hasOwnProperty(property)) {
+                if(target[property] !== undefined && target[property] !== null) {
+                    switch(target[property].constructor) {
+                        case Function:
+                            break
+                
+                        case Array:
+                        case Date:
+                        case Boolean:
+                        case Number:
+                        case String:
+                            destination[property] = source[property]
+                            break
+            
+                        case Object:
+                        default:
+                            destination[property] = this.apply(destination[property], source[property])
+                            break
+                    }
+
+                    continue
+                }
+            }
+
+            destination[property] = source[property];
+        }
+
+        return destination;
+    }
+
+    private isClass(obj: any) {
+        const isCtorClass = obj.constructor && obj.constructor.toString().substring(0, 5) === 'class';
+
+        if (obj.prototype === undefined)
+            return isCtorClass
+        
+        const isPrototypeCtorClass = obj.prototype.constructor
+            && obj.prototype.constructor.toString
+            && obj.prototype.constructor.toString().substring(0, 5) === 'class'
+
+        return isCtorClass || isPrototypeCtorClass
+    }    
 }
