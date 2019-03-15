@@ -1,5 +1,6 @@
-(Symbol as any).asyncIterator = (<any>Symbol).asyncIterator || "__@@asyncIterator__";
-
+if(!Symbol.asyncIterator)
+    (Symbol as any).asyncIterator = Symbol.asyncIterator || "__@@asyncIterator__";
+    
 import { UriFactory, DocumentClient, ConnectionPolicy, NewDocument, RequestOptions, DocumentOptions, RetrievedDocument, FeedOptions, SqlQuerySpec, QueryIterator } from 'documentdb'
 import { DocumentBase } from 'documentdb/lib'
 import * as Constants from 'documentdb/lib/constants'
