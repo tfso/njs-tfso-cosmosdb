@@ -1,9 +1,10 @@
 {
   "name": "tfso-cosmosdb",
   "version": "0.0.0",
-  "description": "Promise wrapper for CosmosDB with simplified usage ",
+  "description": "Promise wrapper for CosmosDB with simplified usage",
   "scripts": {
-    "test": "node node_modules/mocha/bin/_mocha --reporter spec --recursive lib/test/*.js"
+    "test": "node node_modules/mocha/bin/_mocha --reporter spec --recursive lib/test/*.js",
+    "build": "node node_modules/typescript/bin/tsc"
   },
   "author": {
     "name": "Nicolai"
@@ -11,15 +12,14 @@
   "main": "./lib/index",
   "typings": "./lib/index",
   "dependencies": {
-    "documentdb": "^1.14.2"
+    "@azure/cosmos": "^3.6.2"
   },
   "devDependencies": {
-    "@types/documentdb": "^1.10.4",
-    "@types/mocha": "^2.2.39",
+    "@types/mocha": "^7.0.2",
     "@types/node": "^8.5.3",
-    "tslib": "^1.9.0",
-    "mocha": "^2.5.3",
-    "ts-node": "^4.1.0",
-    "typescript": "^2.7.2"
+    "tslib": "^1.11.1",
+    "mocha": "^7.1.0",
+    "ts-node": "^8.6.2",
+    "typescript": "^3.8.3"
   }
 }

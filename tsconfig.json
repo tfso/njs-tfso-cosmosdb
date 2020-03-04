@@ -2,8 +2,11 @@
     "compileOnSave": true,
     "compilerOptions": {
         "target": "es2017",
+        "lib": [
+            "es2020"
+        ],
         "downlevelIteration": true,
-        "lib": ["esnext" ],
+        "skipLibCheck": true,
         "module": "commonjs",
         "noEmitOnError": true,
         "declaration": true,

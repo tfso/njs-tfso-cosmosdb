@@ -31,11 +31,6 @@
 			"TS_NODE_COMPILER": "./node_modules/typescript/bin/tsc"
 		},
 		"typescript.tsdk": "./node_modules/typescript/lib",
-		"mocha.options": {
-			"compilers": {
-				"ts": "ts-node/register"
-			}
-		},
 		"mocha.files.glob": "src/test/*.ts",
 		"mocha.requires": [
 			"ts-node/register"

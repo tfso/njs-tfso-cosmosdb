@@ -1,13 +1,10 @@
 if(!Symbol.asyncIterator)
     (Symbol as any).asyncIterator = Symbol.asyncIterator || "__@@asyncIterator__";
-    
-import { UriFactory, DocumentClient, ConnectionPolicy, NewDocument, RequestOptions, DocumentOptions, RetrievedDocument, FeedOptions, SqlQuerySpec, QueryIterator } from 'documentdb'
-import { DocumentBase } from 'documentdb/lib'
-import * as Constants from 'documentdb/lib/constants'
 
+import { CosmosClient, ItemDefinition, ConnectionPolicy, SqlQuerySpec, FeedOptions, RequestOptions } from '@azure/cosmos'
 
-export default class DocumentDBClient<TEntity extends NewDocument> {
-    private _client: DocumentClient;
+export default class DocumentDBClient<TEntity extends ItemDefinition> {
+    private _client: CosmosClient;
     private _policy: ConnectionPolicy;
 
     private offerSelfLink: string
@@ -21,10 +18,7 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
 
     public get policy(): ConnectionPolicy {
         if(this._policy == null) {
-            this._policy = new DocumentBase.ConnectionPolicy()
 
-            if(process.env.NODE_ENV == 'development')
-                this._policy.DisableSSLVerification = true
         }
 
         return this._policy
@@ -65,41 +59,28 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
      * @param id 
      * @param options 
      */
-    public readDocument(id: string, options?: RequestOptions): Promise<{resource: TEntity, etag: string, headers: any}>
+    public async readDocument(id: string, options?: RequestOptions & { partitionKey: string } ): Promise<{resource: TEntity, etag: string, headers: any}>
     /**
      * Reads a document by its document id
      * @param document
      * @param options 
      */
-    public readDocument(document: TEntity, options?: RequestOptions): Promise<{resource: TEntity, etag: string, headers: any}>
-    public readDocument(idordoc: any, options: RequestOptions = undefined): Promise<{resource: TEntity, etag: string, headers: any}> {        
-        return new Promise((resolve, reject) => {
-            try {
-                this.validateOptions(options)
+    public async readDocument(document: TEntity, options?: RequestOptions & { partitionKey: string }): Promise<{resource: TEntity, etag: string, headers: any}>
+    public async readDocument(idordoc: any, options?: RequestOptions & { partitionKey: string }): Promise<{resource: TEntity, etag: string, headers: any}> {        
+        try {
+            let item = this.client.database(this.databaseId).container(this.collectionId).item(typeof idordoc == 'object' ? idordoc.id : idordoc, options && options.partitionKey || undefined)
 
-                this.client.readDocument(`${this.createDocumentLink(idordoc)}`, options, (error, resource, headers) => {
-                    if(error) {
-                        switch(error.code) {
-                            case 404:
-                                return resolve({ resource: null, etag: null, headers })
+            if(item) {
+                let { resource, headers, etag } = await item.read(options)
 
-                            default:
-                                return reject(this.transformError(error))
-                        }
-                    }
-
-                    try {
-                        resolve({resource: this.makeEntity(resource), etag: resource._etag, headers})
-                    }
-                    catch(ex) {
-                        reject(ex)
-                    }
-                })
+                return { resource: this.makeEntity(resource), etag, headers }
             }
-            catch(ex) {
-                reject(ex)
-            }
-        })
+
+            return { resource: null, etag: null, headers: { } }
+        }
+        catch(ex) {
+            throw ex
+        }
     }
 
     /**
@@ -107,25 +88,16 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
      * @param query 
      * @param options 
      */
-    public queryDocuments(query: string | SqlQuerySpec, options?: FeedOptions): Promise<{resources: TEntity[], continuationToken: string, headers: any}> {
-        return new Promise(async (resolve, reject) => {
-            try {
-                this.validateOptions(options)
-
-                let iterator = this.client.queryDocuments(this.createCollectionLink(), query, options)
-                
-                let { resources, headers } = await this.executeNext(iterator)
-                
-                resolve({
-                    resources,
-                    continuationToken: resources !== undefined ? headers['x-ms-continuation'] : null,
-                    headers
-                })
-            }
-            catch(ex) {
-                reject(ex)
-            }
-        })
+    public async queryDocuments(query: string | SqlQuerySpec, options?: FeedOptions): Promise<{resources: TEntity[], continuationToken: string, headers: any}> {
+        let iterator = this.client.database(this.databaseId).container(this.collectionId).items.query(query, options)
+        
+        let { resources, continuationToken, ...rest } = await iterator.fetchNext()
+        
+        return {
+            resources: resources.map(resource => this.makeEntity(resource)),
+            continuationToken,
+            headers: rest['headers']
+        }
     }
 
     /**
@@ -134,13 +106,11 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
      * @param options 
      */
     public async * iterateDocuments(query: string | SqlQuerySpec, options?: FeedOptions): AsyncIterableIterator<TEntity> {
-        this.validateOptions(options)
-
-        let iterator = this.client.queryDocuments(this.createCollectionLink(), query, options)
+        let iterator = this.client.database(this.databaseId).container(this.collectionId).items.query(query, options)
 
         do
         {
-            let { resources, headers } = await this.executeNext(iterator)
+            let { resources } = await iterator.fetchNext()
 
             if(resources === undefined)
                 break;
@@ -155,30 +125,10 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
      * @param document 
      * @param options 
      */
-    public createDocument(document: TEntity, options: DocumentOptions = undefined): Promise<{resource: TEntity, headers: any }> {
-        return new Promise((resolve, reject) => {
-            try {
-                let opts: DocumentOptions = Object.assign({  
-                }, options)
+    public async createDocument(document: TEntity, options: RequestOptions = undefined): Promise<{resource: TEntity, etag: string, headers: any }> {
+        let { resource, etag, headers } = await this.client.database(this.databaseId).container(this.collectionId).items.create(document, options)
 
-                this.validateOptions(options)
-
-                this.client.createDocument(this.createCollectionLink(), document, options, (error, resource, headers) => {
-                    if(error) 
-                        return reject(this.transformError(error))
-
-                    try {
-                        resolve({ resource: this.makeEntity(resource), headers })
-                    } 
-                    catch(ex) {
-                        reject(ex)
-                    }
-                })
-            }
-            catch(ex) {
-                reject(ex);
-            }
-        })
+        return { resource, etag, headers }
     }
 
     /**
@@ -186,42 +136,38 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
      * @param document 
      * @param options 
      */
-    public updateDocument(document: Partial<TEntity>, options: RequestOptions = undefined): Promise<{resource: TEntity, headers: any}> {
-        return new Promise(async (resolve, reject) => {
+    public async updateDocument(document: Partial<TEntity>, options: RequestOptions & { partitionKey: string }): Promise<{resource: TEntity, etag: string, headers: any}> {       
+        if(document.id == null)
+            throw new Error(`Document is missing property id`)
+
+        for(let retry = 0; retry < 4; retry++) {
+            let item = this.client.database(this.databaseId).container(this.collectionId).item(document.id, options && options.partitionKey || undefined)
+
+            let { resource, etag, statusCode } = await item.read(options)
+
+            if(statusCode == 404)
+                throw new Error(`Document ${document.id} does not exist.`)
+
+            let newDocument = this.apply(resource, document);
+
             try {
-                if(document.id == null)
-                    throw new Error(`Document is missing property id`)
+                let { resource: newResource, etag: newEtag, headers, statusCode } = await item.replace(newDocument, Object.assign(options || {}, {
+                    accessCondition : { type: 'IfMatch', condition: etag }
+                }))
 
-                this.validateOptions(options)
+                if(statusCode == 200)
+                    return { resource: this.makeEntity(newResource), etag: newEtag, headers }
 
-                for(let retry = 0; retry < 4; retry++) {
-                    let { resource, etag } = await this.readDocument(document.id, options)
-
-                    if(resource == null)
-                        throw new Error(`Document "${this.createDocumentLink(<TEntity>document)}" does not exist.`)
-
-                    let newDocument = this.apply(resource, document);
-
-                    try {
-                        let { resource: newResource, headers } = await this.replaceDocument(newDocument, Object.assign(options || {}, {
-                            accessCondition : { type: 'IfMatch', condition: etag }
-                        }))
-
-                        resolve({ resource: newResource, headers })
-                    }
-                    catch(ex) {
-                        if(ex.statusCode != 412 || retry == 4) 
-                            throw ex;
-
-                        // try again but wait a bit
-                        await this.delay(100 + (200 * (retry - 1)));
-                    }
-                }
+                throw { statusCode }
             }
             catch(ex) {
-                reject(ex)
+                if(ex.statusCode != 412 || retry == 4) 
+                    throw ex;
+
+                // try again but wait a bit
+                await this.delay(100 + (200 * (retry - 1)));
             }
-        })
+        }
     }
 
     /**
@@ -229,30 +175,19 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
      * @param document 
      * @param options 
      */
-    public replaceDocument(document: TEntity, options: RequestOptions = undefined): Promise<{resource: TEntity, headers: any}> {
-        return new Promise((resolve, reject) => {
-            try {
-                this.validateOptions(options)
+    public async replaceDocument(document: TEntity, options: RequestOptions & { partitionKey: string } = undefined): Promise<{resource: TEntity, etag: string, headers: any}> {
+        let item = this.client.database(this.databaseId).container(this.collectionId).item(document.id, options && options.partitionKey || undefined)
 
-                this.client.replaceDocument(this.createDocumentLink(document), document, options, (error, resource, headers) => {
-                    if(error)
-                        return reject(this.transformError(error))
+        let { resource, etag } = await item.read(options)
 
-                    try {
-                        resolve({
-                            resource: this.makeEntity(resource),
-                            headers
-                        })
-                    }
-                    catch(ex) {
-                        reject(ex)
-                    }
-                })
-            }
-            catch(ex) {
-                reject(ex)
-            }
-        })
+        if(resource == null)
+            throw new Error(`Document ${document.id} does not exist.`)
+
+        let newDocument = this.apply(resource, document);
+
+        let { resource: newResource, etag: newEtag, headers } = await item.replace(newDocument, options)
+
+        return { resource: this.makeEntity(newResource), etag: newEtag, headers }
     }
 
     /**
@@ -260,59 +195,31 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
      * @param document 
      * @param options 
      */
-    public upsertDocument(document: TEntity, options: DocumentOptions = undefined): Promise<{ resource: TEntity, headers: any}> {
-        return new Promise((resolve, reject) => {
-            try {
-                this.validateOptions(options)
+    public async upsertDocument(document: TEntity, options: RequestOptions = undefined): Promise<{ resource: TEntity, etag: string, headers: any}> {
 
-                this.client.upsertDocument(this.createCollectionLink(), document, options, (error, resource, headers) => {
-                    if(error)
-                        return reject(this.transformError(error))
+        let { resource, headers, etag } = await this.client.database(this.databaseId).container(this.collectionId).items.upsert(document, options)
 
-                    try {
-                        resolve({
-                            resource: this.makeEntity(resource),
-                            headers
-                        })
-                    } 
-                    catch(ex) {
-                        reject(ex)   
-                    }
-                })
-            }
-            catch(err) {
-                reject(err)
-            }
-        })
+        return { resource: this.makeEntity(resource), etag, headers }
     }
 
     /**
      * Deletes a document by its document id
      * @param document 
      */
-    public deleteDocument(document: TEntity, options?: RequestOptions): Promise<{resource: void, headers: any}>
+    public deleteDocument(document: TEntity, options?: RequestOptions & { partitionKey: string }): Promise<{resource: void, headers: any}>
     /**
      * Deletes a document by its id
      * @param id 
      */
-    public deleteDocument(id: string, options?: RequestOptions): Promise<{resource: void, headers: any}>
-    public deleteDocument(idordoc: any, options: RequestOptions = undefined): Promise<{resource: void, headers: any}> {
-        return new Promise((resolve, reject) => {
-            try {
-                this.client.deleteDocument(this.createDocumentLink(idordoc), options, (error, resource, headers) => {
-                    if(error) 
-                        return reject(this.transformError(error))
+    public deleteDocument(id: string, options?: RequestOptions & { partitionKey: string }): Promise<{resource: void, headers: any}>
+    public async deleteDocument(idordoc: any, options: RequestOptions & { partitionKey: string } = undefined): Promise<{resource: void, headers: any}> {
+        let item = this.client.database(this.databaseId).container(this.collectionId).item(typeof idordoc == 'object' ? idordoc.id : idordoc, options && options.partitionKey || undefined)
+        let { resource, headers, statusCode } = await item.delete(options)
+        
+        if(statusCode == 404)
+            return { resource: null, headers }
 
-                    resolve({
-                        resource: null,
-                        headers
-                    })
-                })
-            }
-            catch(ex) {
-                reject(ex)
-            }
-        })
+        return { resource, headers }
     }
 
     /**
@@ -324,7 +231,7 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
                 let offer = await this.getOffer()
 
                 if(!offer.content)
-                    throw new Error(`Offer for collection "${this.createCollectionLink()}" is missing content`);
+                    throw new Error(`Offer for collection "${this.collectionId}" is missing content`);
                 
                 resolve(offer.content.offerThroughput)
             }
@@ -342,77 +249,68 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
         return new Promise<boolean>(async (resolve, reject) => {
             try {
                 if(value < 400) value = 400
-                if(value > 10000) value = 10000
-
+                
                 if(await this.reserveOffer() == true) {
                     let offer = await this.getOffer()
 
                     if(!offer.content)
-                        throw new Error(`Offer for collection "${this.createCollectionLink()}" is missing content`);
+                        throw new Error(`Offer for collection "${this.collectionId}" is missing content`);
                     
                     offer.content.offerThroughput = value;               
 
-                    this.client.replaceOffer(offer._self, offer, (error, resource) => {
-                        if(error)
-                            return reject(this.transformError(error))
-
-                        resolve(true)
-
-                        this.offerReserved = false
-                    })
-                }
-                else {
-                    resolve(false)
+                    let { statusCode } = await this.client.offer(offer.id).replace(offer)
 
                     this.offerReserved = false
+
+                    return statusCode == 200
+                }
+                else {
+                    this.offerReserved = false
+
+                    return false
                 }
             }
             catch(ex) {
-                reject(ex)
-
                 this.offerReserved = false
+
+                throw ex
             }
         })
     }
 
     /**
-     * Increase the throughput (RU/s), defaults to 200. Will never exceed 10000
+     * Increase the throughput (RU/s), defaults to 200
      * @param value RU/s
      */    
-    public async increaseThroughput(value: number = 200): Promise<number> {
-        return new Promise<number>(async (resolve, reject) => {
-            try {
-                if(value < 0) value = 200
+    public async increaseThroughput(value: number = 200, max: number = 10000): Promise<number> {
+        try {
+            if(value < 0) value = 200
 
-                if(await this.reserveOffer() == true) {
-                    let offer = await this.getOffer()
+            if(await this.reserveOffer() == true) {
+                let offer = await this.getOffer()
 
-                    if(!offer.content)
-                        throw new Error(`Offer for collection "${this.createCollectionLink()}" is missing content`);
+                if(!offer.content)
+                    throw new Error(`Offer for collection "${this.collectionId}" is missing content`);
 
-                    offer.content.offerThroughput = Math.min( (offer.content.offerThroughput + value), 10000)
+                offer.content.offerThroughput = Math.min( (offer.content.offerThroughput + value), Number(max) || 10000)
 
-                    this.client.replaceOffer(offer._self, offer, (error, resource) => {
-                        if(error)
-                            return reject(this.transformError(error))
-
-                        resolve(offer.content.offerThroughput)
-
-                        this.offerReserved = false
-                    })
-                }
-                else {
-                    resolve(undefined)
-
-                    this.offerReserved = false
-                }
-            }
-            catch(ex) {
-                reject(ex)
+                let { statusCode } = await this.client.offer(offer.id).replace(offer)
 
                 this.offerReserved = false
+
+                return statusCode == 200 ? offer.content.offerThroughput : undefined
             }
-        })
+            else {
+                this.offerReserved = false
+
+                return undefined
+            }
+        }
+        catch(ex) {
+            this.offerReserved = false
+
+            throw ex
+        }
     }
 
     /**
@@ -428,29 +326,26 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
                     let offer = await this.getOffer()
 
                     if(!offer.content)
-                        throw new Error(`Offer for collection "${this.createCollectionLink()}" is missing content`);
+                        throw new Error(`Offer for collection "${this.collectionId}" is missing content`);
 
                     offer.content.offerThroughput = Math.max(offer.content.offerThroughput - value, 400);
 
-                    this.client.replaceOffer(offer._self, offer, (error, resource) => {
-                        if(error)
-                            return reject(this.transformError(error))
+                    let { statusCode } = await this.client.offer(offer.id).replace(offer)
+                    
+                    this.offerReserved = false
 
-                        resolve(offer.content.offerThroughput)
-
-                        this.offerReserved = false
-                    })
+                    return statusCode == 200 ? offer.content.offerThroughput : undefined
                 }
                 else {
-                    resolve(undefined)
-
                     this.offerReserved = false
+
+                    return undefined
                 }
             }
             catch(ex) {
-                reject(ex)
-
                 this.offerReserved = false
+
+                throw ex
             }
         })
     }
@@ -474,118 +369,50 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
         })
     }
 
-    private getOffer(): Promise<any> {  
-        let getCollectionSelfLink = async () => {
-            return new Promise((resolve, reject) => {
-                try {
-                    this.client.readCollection(this.createCollectionLink(), async (err, resource) => {
-                        resolve(resource._self)
-                    });
-                }
-                catch(ex) {
-                    reject(ex)
-                }
-            })
-        }     
+    private async getOffer(): Promise<Record<string, any>> {  
+        if(!this.offerSelfLink) {
+            let { resource, statusCode } = await this.client.database(this.databaseId).container(this.collectionId).read()
 
-        return new Promise(async (resolve, reject) => {
-            try {
-                if(!this.offerSelfLink) {
-                    let iterator = this.client.queryOffers({ 
-                        query: 'SELECT * FROM r WHERE r.resource = @selfLink',
-                        parameters: [
-                            { name: '@selfLink', value: await getCollectionSelfLink() }
-                        ]
-                    });
+            this.offerSelfLink = resource._self
+        }
 
-                    iterator.executeNext((error, resources, headers) => {
-                        if(error)
-                            return reject(this.transformError(error))
+        let offers = await this._client.offers.readAll().fetchAll()
+        if(offers) {
+            let offer = offers.resources.find(resource => resource.resource == this.offerSelfLink)
 
-                        if(resources.length != 1)
-                            return reject(new Error(`Offer for collection "${this.createCollectionLink()}" is not found`))
+            if(!offer)
+                throw new Error(`Offer for collection "${this.collectionId}" is not found`)
 
-                        this.offerSelfLink = resources[0]._self
-                        
-                        resolve(resources[0])
-                    })
-                }
-                else {
-                    this.client.readOffer(this.offerSelfLink, (error, resource) => {
-                        if(error)
-                            return reject(this.transformError(error))
+            return offer
+        }
 
-                        resolve(resource)
-                    })
-                }
-            } catch(ex) {
-                reject(ex)
-            }
-        })
-        
-    }    
+        return null   
+    }
 
     protected get client() {
-        if(this._client == null)
-            this._client = new DocumentClient(this.host, {
-                masterKey: this.key
-            }, this.policy)
+        if(this._client == null) {
+            this._client = new CosmosClient(`AccountEndpoint=${this.host};AccountKey=${this.key};`)
+            
+            // this.policy
+        }
         
         return this._client
     }
 
-    protected createDatabaseLink() {
-        return UriFactory.createDatabaseUri(this.databaseId)
-    }
-
-    protected createCollectionLink() {
-        return UriFactory.createDocumentCollectionUri(this.databaseId, this.collectionId)
-    }
-
-    protected createDocumentLink(id: string): string
-    protected createDocumentLink(document: TEntity): string
-    protected createDocumentLink(document: any): string {
-        return UriFactory.createDocumentUri(this.databaseId, this.collectionId, typeof document == 'object' ? document.id : document)
-    }
-
-    private executeNext(iterator: QueryIterator<RetrievedDocument>): Promise<{resources: TEntity[], headers: any}> {
-        return new Promise((resolve, reject) => {
-            try {
-                iterator.executeNext((error, resources, headers) => {
-                    if(error)
-                        return reject(this.transformError(error))
-
-                    if(error === undefined && resources === undefined)
-                        return resolve({ resources: undefined, headers: undefined })
-
-                    resolve({
-                        resources: resources.map(r => this.makeEntity(r)),
-                        headers
-                    })
-                })
-                
-            } 
-            catch(ex) {
-                reject(ex)
-            }
-        })
-    }    
-
-    private makeEntity<T extends NewDocument>(doc: T): TEntity {
+    private makeEntity<T extends ItemDefinition>(doc: T): TEntity {
         return <TEntity>this.makeDocument(doc)
     }
 
-    private makeDocument(resource: TEntity): NewDocument
-    private makeDocument(resource: NewDocument): NewDocument
-    private makeDocument(resource: RetrievedDocument): NewDocument
-    private makeDocument<T extends NewDocument>(resource: T): NewDocument {
+    private makeDocument(resource: TEntity): ItemDefinition
+    private makeDocument(resource: ItemDefinition): ItemDefinition
+    private makeDocument<T extends ItemDefinition>(resource: T): ItemDefinition {
         if(typeof resource != 'object' || resource == null)
             return null
 
         if(this._washDocuments == false)
             return resource;
         
-        let document: NewDocument = { id: resource.id }
+        let document: ItemDefinition = { id: resource.id }
 
         for(let propertyName of Object.getOwnPropertyNames(resource)) {
             switch(propertyName) {
@@ -624,102 +451,6 @@ export default class DocumentDBClient<TEntity extends NewDocument> {
         }
 
         return err
-    }
-
-    private validateOptions(options: FeedOptions | RequestOptions | DocumentOptions): void {
-        for(let [key, value] of Object.entries(this.getHeaders(options))) 
-        {
-            if(value === undefined)
-                throw new TypeError(`Invalid value "${value}" for header "${key}"`)
-        }
-    }
-
-    private getHeaders(options: FeedOptions): { [index: string]: string } 
-    private getHeaders(options: RequestOptions): { [index: string]: string }
-    private getHeaders(options: DocumentOptions): { [index: string]: string }
-    private getHeaders(options: any): { [index: string]: string } {
-        var headers = {}
-            options = options || {};
-            
-        if (options.continuation) {
-            headers[Constants.HttpHeaders.Continuation] = options.continuation;
-        }
-        
-        if (options.preTriggerInclude) {
-            headers[Constants.HttpHeaders.PreTriggerInclude] = options.preTriggerInclude.constructor === Array ? options.preTriggerInclude.join(",") : options.preTriggerInclude;
-        }
-        
-        if (options.postTriggerInclude) {
-            headers[Constants.HttpHeaders.PostTriggerInclude] = options.postTriggerInclude.constructor === Array ? options.postTriggerInclude.join(",") : options.postTriggerInclude;
-        }
-        
-        if (options.offerType) {
-            headers[Constants.HttpHeaders.OfferType] = options.offerType;
-        }
-        
-        if (options.offerThroughput) {
-            headers[Constants.HttpHeaders.OfferThroughput] = options.offerThroughput;
-        }
-        
-        if (options.maxItemCount) {
-            headers[Constants.HttpHeaders.PageSize] = options.maxItemCount;
-        }
-        
-        if (options.accessCondition) {
-            if (options.accessCondition.type === "IfMatch") {
-                headers[Constants.HttpHeaders.IfMatch] = options.accessCondition.condition;
-            } else {
-                headers[Constants.HttpHeaders.IfNoneMatch] = options.accessCondition.condition;
-            }
-        }
-        
-        if (options.indexingDirective) {
-            headers[Constants.HttpHeaders.IndexingDirective] = options.indexingDirective;
-        }
-        
-        // TODO: add consistency level validation.
-        if (options.consistencyLevel) {
-            headers[Constants.HttpHeaders.ConsistencyLevel] = options.consistencyLevel;
-        }
-        
-        if (options.resourceTokenExpirySeconds) {
-            headers[Constants.HttpHeaders.ResourceTokenExpiry] = options.resourceTokenExpirySeconds;
-        }
-        
-        // TODO: add session token automatic handling in case of session consistency.
-        if (options.sessionToken) {
-            headers[Constants.HttpHeaders.SessionToken] = options.sessionToken;
-        }
-        
-        if (options.enableScanInQuery) {
-            headers[Constants.HttpHeaders.EnableScanInQuery] = options.enableScanInQuery;
-        }
-        
-        if (options.enableCrossPartitionQuery) {
-            headers[Constants.HttpHeaders.EnableCrossPartitionQuery] = options.enableCrossPartitionQuery;
-        }
-
-        if (options.maxDegreeOfParallelism != undefined) {
-            headers[Constants.HttpHeaders.ParallelizeCrossPartitionQuery] = true;
-        }
-
-        if (options.populateQuotaInfo) {
-            headers[Constants.HttpHeaders.PopulateQuotaInfo] = true;
-        }
-
-        if (options.enableScriptLogging) {
-            headers[Constants.HttpHeaders.EnableScriptLogging] = options.enableScriptLogging;
-        }
-
-        if (options.offerEnableRUPerMinuteThroughput) {
-            headers[Constants.HttpHeaders.OfferIsRUPerMinuteThroughputEnabled] = true; 
-        }
-
-        if (options.disableRUPerMinuteUsage) {
-            headers[Constants.HttpHeaders.DisableRUPerMinuteUsage] = true; 
-        }
-
-        return headers;
     }
 
     private apply<TEntity>(target: TEntity, source: Partial<TEntity>): TEntity {
