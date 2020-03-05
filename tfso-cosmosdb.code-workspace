@@ -27,22 +27,23 @@
 			"lib": true,
 			"node_modules": true
 		},
-		"mocha.env": {
-			"TS_NODE_COMPILER": "./node_modules/typescript/bin/tsc"
-		},
 		"typescript.tsdk": "./node_modules/typescript/lib",
+		"mocha.parallelTests": 5,
 		"mocha.files.glob": "src/test/*.ts",
 		"mocha.requires": [
 			"ts-node/register"
 		],
-		//Mocha: this option allows you to enable/disable lens decorations and set update threshold "
-		"mocha.sideBarOptions": {
+		"mocha.env": {
+			"NODE_ENV": "development",
+			"TS_NODE_TRANSPILE_ONLY": "1"
+		},
+		"mocha.sideBarOptions": { //Mocha: this option allows you to enable/disable lens decorations and set update threshold "
 			"default": {
 				"lens": true, // -> enable/disable lens
 				"decoration": true, // -> enable/disable decoration
 				"autoUpdateTime": 2000 // -> set timeout between each decorations and lens updates during test writing 
 			}
-		}
+		},
 	},
 	"extensions": {
 		"recommendations": [

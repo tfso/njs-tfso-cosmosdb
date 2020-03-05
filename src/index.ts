@@ -73,7 +73,11 @@ export default class DocumentDBClient<TEntity extends ItemDefinition> {
             if(item) {
                 let { resource, headers, etag } = await item.read(options)
 
-                return { resource: this.makeEntity(resource), etag, headers }
+                return { 
+                    resource: this.makeEntity(resource), 
+                    etag: this.fixEtag(etag), 
+                    headers 
+                }
             }
 
             return { resource: null, etag: null, headers: { } }
@@ -128,7 +132,11 @@ export default class DocumentDBClient<TEntity extends ItemDefinition> {
     public async createDocument(document: TEntity, options: RequestOptions = undefined): Promise<{resource: TEntity, etag: string, headers: any }> {
         let { resource, etag, headers } = await this.client.database(this.databaseId).container(this.collectionId).items.create(document, options)
 
-        return { resource, etag, headers }
+        return { 
+            resource, 
+            etag: this.fixEtag(etag), 
+            headers 
+        }
     }
 
     /**
@@ -156,12 +164,16 @@ export default class DocumentDBClient<TEntity extends ItemDefinition> {
                 }))
 
                 if(statusCode == 200)
-                    return { resource: this.makeEntity(newResource), etag: newEtag, headers }
+                    return { 
+                        resource: this.makeEntity(newResource), 
+                        etag: this.fixEtag(newEtag), 
+                        headers 
+                    }
 
                 throw { statusCode }
             }
             catch(ex) {
-                if(ex.statusCode != 412 || retry == 4) 
+                if(ex.code != 412 || retry == 4) 
                     throw ex;
 
                 // try again but wait a bit
@@ -187,7 +199,11 @@ export default class DocumentDBClient<TEntity extends ItemDefinition> {
 
         let { resource: newResource, etag: newEtag, headers } = await item.replace(newDocument, options)
 
-        return { resource: this.makeEntity(newResource), etag: newEtag, headers }
+        return {
+            resource: this.makeEntity(newResource), 
+            etag: this.fixEtag(newEtag),
+            headers 
+        }
     }
 
     /**
@@ -196,10 +212,13 @@ export default class DocumentDBClient<TEntity extends ItemDefinition> {
      * @param options 
      */
     public async upsertDocument(document: TEntity, options: RequestOptions = undefined): Promise<{ resource: TEntity, etag: string, headers: any}> {
-
         let { resource, headers, etag } = await this.client.database(this.databaseId).container(this.collectionId).items.upsert(document, options)
 
-        return { resource: this.makeEntity(resource), etag, headers }
+        return { 
+            resource: this.makeEntity(resource), 
+            etag: this.fixEtag(etag), 
+            headers 
+        }
     }
 
     /**
@@ -348,6 +367,14 @@ export default class DocumentDBClient<TEntity extends ItemDefinition> {
                 throw ex
             }
         })
+    }
+
+    private fixEtag(value: string): string {
+        let match = /^\"?([^"]*)\"?$/.exec(value || '')
+        if(match)
+            return match[1]
+
+        return value
     }
 
     private reserveOffer(timeout: number = 15000): Promise<boolean> {
