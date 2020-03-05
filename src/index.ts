@@ -99,7 +99,7 @@ export default class DocumentDBClient<TEntity extends ItemDefinition> {
         
         return {
             resources: resources.map(resource => this.makeEntity(resource)),
-            continuationToken,
+            continuationToken: this.fixContinuationToken(continuationToken),
             headers: rest['headers']
         }
     }
@@ -371,6 +371,14 @@ export default class DocumentDBClient<TEntity extends ItemDefinition> {
 
     private fixEtag(value: string): string {
         let match = /^\"?([^"]*)\"?$/.exec(value || '')
+        if(match)
+            return match[1]
+
+        return value
+    }
+
+    private fixContinuationToken(value: string): string {
+        let match = /\"token\"\s*:\s*\"([^"]*)\"/.exec(value || '')
         if(match)
             return match[1]
 
