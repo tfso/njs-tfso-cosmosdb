@@ -532,3 +532,5 @@ export default class DocumentDBClient<TEntity extends ItemDefinition> {
         return isCtorClass || isPrototypeCtorClass
     }    
 }
+
+export { ItemDefinition as Document }
