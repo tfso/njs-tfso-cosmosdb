@@ -59,14 +59,14 @@ export default class DocumentDBClient<TEntity extends ItemDefinition> {
      * @param id 
      * @param options 
      */
-    public async readDocument(id: string, options?: RequestOptions & { partitionKey: string } ): Promise<{resource: TEntity, etag: string, headers: any}>
+    public async readDocument(id: string, options?: RequestOptions & { partitionKey?: string }): Promise<{resource: TEntity, etag: string, headers: any}>
     /**
      * Reads a document by its document id
      * @param document
      * @param options 
      */
-    public async readDocument(document: TEntity, options?: RequestOptions & { partitionKey: string }): Promise<{resource: TEntity, etag: string, headers: any}>
-    public async readDocument(idordoc: any, options?: RequestOptions & { partitionKey: string }): Promise<{resource: TEntity, etag: string, headers: any}> {        
+    public async readDocument(document: TEntity, options?: RequestOptions & { partitionKey?: string }): Promise<{resource: TEntity, etag: string, headers: any}>
+    public async readDocument(idordoc: any, options?: RequestOptions & { partitionKey?: string }): Promise<{resource: TEntity, etag: string, headers: any}> {        
         try {
             let item = this.client.database(this.databaseId).container(this.collectionId).item(typeof idordoc == 'object' ? idordoc.id : idordoc, options && options.partitionKey || undefined)
 
@@ -76,7 +76,7 @@ export default class DocumentDBClient<TEntity extends ItemDefinition> {
                 return { 
                     resource: this.makeEntity(resource), 
                     etag: this.fixEtag(etag), 
-                    headers 
+                    headers
                 }
             }
 
@@ -129,7 +129,7 @@ export default class DocumentDBClient<TEntity extends ItemDefinition> {
      * @param document 
      * @param options 
      */
-    public async createDocument(document: TEntity, options: RequestOptions = undefined): Promise<{resource: TEntity, etag: string, headers: any }> {
+    public async createDocument(document: TEntity, options?: RequestOptions): Promise<{resource: TEntity, etag: string, headers: any }> {
         let { resource, etag, headers } = await this.client.database(this.databaseId).container(this.collectionId).items.create(document, options)
 
         return { 
@@ -144,7 +144,7 @@ export default class DocumentDBClient<TEntity extends ItemDefinition> {
      * @param document 
      * @param options 
      */
-    public async updateDocument(document: Partial<TEntity>, options: RequestOptions & { partitionKey: string }): Promise<{resource: TEntity, etag: string, headers: any}> {       
+    public async updateDocument(document: Partial<TEntity>, options?: RequestOptions & { partitionKey?: string }): Promise<{resource: TEntity, etag: string, headers: any}> {       
         if(document.id == null)
             throw new Error(`Document is missing property id`)
 
@@ -187,7 +187,7 @@ export default class DocumentDBClient<TEntity extends ItemDefinition> {
      * @param document 
      * @param options 
      */
-    public async replaceDocument(document: TEntity, options: RequestOptions & { partitionKey: string } = undefined): Promise<{resource: TEntity, etag: string, headers: any}> {
+    public async replaceDocument(document: TEntity, options?: RequestOptions & { partitionKey?: string }): Promise<{resource: TEntity, etag: string, headers: any}> {
         let item = this.client.database(this.databaseId).container(this.collectionId).item(document.id, options && options.partitionKey || undefined)
 
         let { resource, etag } = await item.read(options)
@@ -211,7 +211,7 @@ export default class DocumentDBClient<TEntity extends ItemDefinition> {
      * @param document 
      * @param options 
      */
-    public async upsertDocument(document: TEntity, options: RequestOptions = undefined): Promise<{ resource: TEntity, etag: string, headers: any}> {
+    public async upsertDocument(document: TEntity, options?: RequestOptions): Promise<{ resource: TEntity, etag: string, headers: any}> {
         let { resource, headers, etag } = await this.client.database(this.databaseId).container(this.collectionId).items.upsert(document, options)
 
         return { 
@@ -225,13 +225,13 @@ export default class DocumentDBClient<TEntity extends ItemDefinition> {
      * Deletes a document by its document id
      * @param document 
      */
-    public deleteDocument(document: TEntity, options?: RequestOptions & { partitionKey: string }): Promise<{resource: void, headers: any}>
+    public deleteDocument(document: TEntity, options?: RequestOptions & { partitionKey?: string }): Promise<{resource: void, headers: any}>
     /**
      * Deletes a document by its id
      * @param id 
      */
-    public deleteDocument(id: string, options?: RequestOptions & { partitionKey: string }): Promise<{resource: void, headers: any}>
-    public async deleteDocument(idordoc: any, options: RequestOptions & { partitionKey: string } = undefined): Promise<{resource: void, headers: any}> {
+    public deleteDocument(id: string, options?: RequestOptions & { partitionKey?: string }): Promise<{resource: void, headers: any}>
+    public async deleteDocument(idordoc: any, options?: RequestOptions & { partitionKey?: string }): Promise<{resource: void, headers: any}> {
         let item = this.client.database(this.databaseId).container(this.collectionId).item(typeof idordoc == 'object' ? idordoc.id : idordoc, options && options.partitionKey || undefined)
         let { resource, headers, statusCode } = await item.delete(options)
         
