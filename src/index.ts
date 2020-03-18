@@ -13,12 +13,12 @@ export default class DocumentDBClient<TEntity extends ItemDefinition> {
     private _washDocuments: boolean = true
 
     constructor(private host: string, private key: string, private databaseId: string, private collectionId: string) {
-     
+            
     }
 
     public get policy(): ConnectionPolicy {
         if(this._policy == null) {
-
+            this._policy = {}
         }
 
         return this._policy
@@ -418,9 +418,7 @@ export default class DocumentDBClient<TEntity extends ItemDefinition> {
 
     protected get client() {
         if(this._client == null) {
-            this._client = new CosmosClient(`AccountEndpoint=${this.host};AccountKey=${this.key};`)
-            
-            // this.policy
+            this._client = new CosmosClient({ endpoint: this.host, key: this.key, connectionPolicy: this._policy }) // new CosmosClient(`AccountEndpoint=${this.host};AccountKey=${this.key};`,)
         }
         
         return this._client
